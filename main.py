@@ -16,14 +16,14 @@ load_dotenv(override=True)
 # RBH: [AGENT FRAMEWORK] Client qui connecte ton agent au modèle IA et gère la logique de conversation
 from agent_framework.azure import AzureAIAgentClient
 
-# RBH: [AGENTSERVER SDK] Transforme l'agent en serveur HTTP compatible avec le protocole Foundry
+# RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Transforme l'agent en serveur HTTP compatible avec le protocole Foundry
 from azure.ai.agentserver.agentframework import from_agent_framework
-# RBH: [AGENTSERVER SDK] Gère l'authentification Azure — fonctionne aussi bien en local (az login) que sur Foundry (Managed Identity)
+# RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Gère l'authentification Azure — fonctionne aussi bien en local (az login) que sur Foundry (Managed Identity)
 from azure.identity.aio import DefaultAzureCredential
 
 # Configure these for your Foundry project
 # Read the explicit variables present in the .env file
-# RBH: [AGENTSERVER SDK] Ces deux variables sont la seule configuration nécessaire pour connecter l'agent à Foundry
+# RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Ces deux variables sont la seule configuration nécessaire pour connecter l'agent à Foundry
 PROJECT_ENDPOINT = os.getenv(
     "PROJECT_ENDPOINT"
 )  # e.g., "https://<project>.services.ai.azure.com"
@@ -129,7 +129,7 @@ def get_available_hotels(
 async def main():
     """Main function to run the agent as a web server."""
     async with (
-        # RBH: [Foundry SDK] Gère l'auth Azure automatiquement selon l'environnement d'exécution
+        # RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Gère l'auth Azure automatiquement selon l'environnement d'exécution
         DefaultAzureCredential() as credential,
         # RBH: [AGENT FRAMEWORK] Ouvre la connexion au modèle IA — doit rester ouvert pendant toute la durée du serveur
         AzureAIAgentClient(
@@ -155,7 +155,7 @@ politely let them know you specialize in Seattle hotel recommendations.""",
             tools=[get_available_hotels],
         )
 
-        # RBH: [Foundry SDK] Encapsule l'agent dans un serveur HTTP — c'est ce serveur que Foundry appelle lors du déploiement
+        # RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Encapsule l'agent dans un serveur HTTP — c'est ce serveur que Foundry appelle lors du déploiement
         print("Seattle Hotel Agent Server running on http://localhost:8088")
         server = from_agent_framework(agent)
         await server.run_async()
