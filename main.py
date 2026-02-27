@@ -13,12 +13,17 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+# RBH: [AGENT FRAMEWORK] Client qui connecte ton agent au modèle IA et gère la logique de conversation
 from agent_framework.azure import AzureAIAgentClient
+
+# RBH: [AGENTSERVER SDK] Transforme l'agent en serveur HTTP compatible avec le protocole Foundry
 from azure.ai.agentserver.agentframework import from_agent_framework
+# RBH: [AGENTSERVER SDK] Gère l'authentification Azure — fonctionne aussi bien en local (az login) que sur Foundry (Managed Identity)
 from azure.identity.aio import DefaultAzureCredential
 
 # Configure these for your Foundry project
 # Read the explicit variables present in the .env file
+# RBH: [AGENTSERVER SDK] Ces deux variables sont la seule configuration nécessaire pour connecter l'agent à Foundry
 PROJECT_ENDPOINT = os.getenv(
     "PROJECT_ENDPOINT"
 )  # e.g., "https://<project>.services.ai.azure.com"
@@ -28,6 +33,7 @@ MODEL_DEPLOYMENT_NAME = os.getenv(
 
 
 # Simulated hotel data for Seattle
+# RBH: [TON CODE] Source de données — indépendante du framework, remplace par ton API ou ta base de données
 SEATTLE_HOTELS = [
     {
         "name": "Contoso Suites",
@@ -68,6 +74,12 @@ SEATTLE_HOTELS = [
 ]
 
 
+# RBH: [TON CODE → AGENT FRAMEWORK] Cette fonction Python devient un "Tool" utilisable par l'agent.
+# Concrètement : quand l'utilisateur demande des hôtels:
+# - le modèle décide seul d'appeler cette fonction,
+# - puis il choisit les bons arguments à partir du contexte de la conversation, puis intègre le résultat dans sa réponse.
+# Le framework lit les Annotated["..."] et la docstring (c'est le texte entre triple guillemets """...""" ) pour générer automatiquement la description 
+# de l'outil envoyée au modèle — sans eux, le modèle ne saurait pas quand ni comment appeler la fonction.
 def get_available_hotels(
     check_in_date: Annotated[str, "Check-in date in YYYY-MM-DD format"],
     check_out_date: Annotated[str, "Check-out date in YYYY-MM-DD format"],
@@ -117,13 +129,16 @@ def get_available_hotels(
 async def main():
     """Main function to run the agent as a web server."""
     async with (
+        # RBH: [Foundry SDK] Gère l'auth Azure automatiquement selon l'environnement d'exécution
         DefaultAzureCredential() as credential,
+        # RBH: [AGENT FRAMEWORK] Ouvre la connexion au modèle IA — doit rester ouvert pendant toute la durée du serveur
         AzureAIAgentClient(
             project_endpoint=PROJECT_ENDPOINT,
             model_deployment_name=MODEL_DEPLOYMENT_NAME,
             credential=credential,
         ) as client,
     ):
+        # RBH: [AGENT FRAMEWORK] Définit le comportement de l'agent (instructions) et lui enregistre les outils Python disponibles
         agent = client.create_agent(
             name="SeattleHotelAgent",
             instructions="""You are a helpful travel assistant specializing in finding hotels in Seattle, Washington.
@@ -135,11 +150,12 @@ When a user asks about hotels in Seattle:
 4. Present the results in a friendly, informative way
 5. Offer to help with additional questions about the hotels or Seattle
 
-Be conversational and helpful. If users ask about things outside of Seattle hotels, 
+Be conversational and helpful. If users ask about things outside of Seattle hotels,
 politely let them know you specialize in Seattle hotel recommendations.""",
             tools=[get_available_hotels],
         )
 
+        # RBH: [Foundry SDK] Encapsule l'agent dans un serveur HTTP — c'est ce serveur que Foundry appelle lors du déploiement
         print("Seattle Hotel Agent Server running on http://localhost:8088")
         server = from_agent_framework(agent)
         await server.run_async()
