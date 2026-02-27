@@ -1,1 +1,7 @@
 /.dockerignore
+.env
+.foundry/
+.claude/
+__pycache__/
+*.pyc
+.venv/
