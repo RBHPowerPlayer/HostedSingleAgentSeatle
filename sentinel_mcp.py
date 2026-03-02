@@ -29,8 +29,8 @@ from azure.identity.aio import ClientSecretCredential
 SENTINEL_MCP_URL = os.getenv("SENTINEL_MCP_URL")
 
 # RBH: Credentials App Registration — mêmes que pour Azure MCP
-AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
-AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+SENTINEL_CLIENT_ID = os.getenv("SENTINEL_CLIENT_ID")
+SENTINEL_CLIENT_SECRET = os.getenv("SENTINEL_CLIENT_SECRET")
 AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
 
 
@@ -46,8 +46,8 @@ async def get_sentinel_token() -> str:
     # RBH: ClientSecretCredential crée le token depuis les credentials de l'App Registration
     async with ClientSecretCredential(
         tenant_id=AZURE_TENANT_ID,
-        client_id=AZURE_CLIENT_ID,
-        client_secret=AZURE_CLIENT_SECRET,
+        client_id=SENTINEL_CLIENT_ID,
+        client_secret=SENTINEL_CLIENT_SECRET,
     ) as credential:
         # RBH: "/.default" = toutes les permissions déléguées configurées sur l'App Registration
         token = await credential.get_token("https://management.azure.com/.default")
@@ -87,4 +87,6 @@ async def create_sentinel_mcp_tool() -> MCPStreamableHTTPTool | None:
         load_tools=True,
     )
 
+    print(vars(sentinel_mcp_tool))
+    
     return sentinel_mcp_tool
