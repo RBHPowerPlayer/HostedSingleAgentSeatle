@@ -15,6 +15,12 @@ load_dotenv(override=True)
 
 # RBH: [AGENT FRAMEWORK] Client qui connecte ton agent au modèle IA et gère la logique de conversation
 from agent_framework.azure import AzureAIAgentClient
+# RBH: [AGENT FRAMEWORK] MCPStdioTool permet d'ajouter un serveur MCP local (processus stdio) comme outil de l'agent
+from agent_framework import MCPStdioTool
+
+# RBH: [AGENT FRAMEWORK + MCP] Pattern MCP Sentinel (serveur distant HTTP/SSE) — voir sentinel_mcp.py
+# RBH: À activer quand un serveur MCP Sentinel hébergé sera disponible (URL configurée dans .env)
+from sentinel_mcp import create_sentinel_mcp_tool
 
 # RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Transforme l'agent en serveur HTTP compatible avec le protocole Foundry
 from azure.ai.agentserver.agentframework import from_agent_framework
@@ -30,6 +36,13 @@ PROJECT_ENDPOINT = os.getenv(
 MODEL_DEPLOYMENT_NAME = os.getenv(
     "MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini"
 )  # Your model deployment name e.g., "gpt-4.1-mini"
+
+# RBH: [AGENT FRAMEWORK + MCP] Credentials de l'App Registration Azure pour authentifier le serveur MCP
+# RBH: Prérequis : créer une App Registration dans Azure Portal → noter client_id, client_secret, tenant_id
+# RBH: Aucune license Copilot M365 requise — fonctionne avec toute subscription Azure
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID")      # App Registration → client ID
+AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")  # App Registration → secret
+AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")      # Azure AD → tenant ID
 
 
 # Simulated hotel data for Seattle
@@ -138,6 +151,24 @@ async def main():
             credential=credential,
         ) as client,
     ):
+        # RBH: [AGENT FRAMEWORK + MCP] Azure MCP Server — serveur MCP officiel Microsoft (github.com/Azure/azure-mcp)
+        # RBH: Lancé comme processus local via npx, authentifié par les variables AZURE_* de l'App Registration
+        # RBH: Expose des outils Azure (Storage, Key Vault, Resource Manager, etc.) et authentification équivalente à Sentinel
+        azure_mcp_tool = MCPStdioTool(
+            name="azure-mcp",
+            command="npx",
+            args=["-y", "@azure/mcp@latest", "server", "start"],
+            env={
+                "AZURE_CLIENT_ID": AZURE_CLIENT_ID,
+                "AZURE_CLIENT_SECRET": AZURE_CLIENT_SECRET,
+                "AZURE_TENANT_ID": AZURE_TENANT_ID,
+            },
+        )
+
+        # RBH: [AGENT FRAMEWORK + MCP] Sentinel MCP Server distant — à activer quand SENTINEL_MCP_URL est configurée
+        # RBH: Voir sentinel_mcp.py pour le détail du pattern HTTP/SSE + auth App Registration
+        sentinel_mcp_tool = await create_sentinel_mcp_tool()
+
         # RBH: [AGENT FRAMEWORK] Définit le comportement de l'agent (instructions) et lui enregistre les outils Python disponibles
         agent = client.create_agent(
             name="SeattleHotelAgent",
@@ -152,7 +183,7 @@ When a user asks about hotels in Seattle:
 
 Be conversational and helpful. If users ask about things outside of Seattle hotels,
 politely let them know you specialize in Seattle hotel recommendations.""",
-            tools=[get_available_hotels],
+            tools=[get_available_hotels, azure_mcp_tool], #, sentinel_mcp_tool] une fois que le MCP Sentinel distant est prêt, ajoute-le à la liste des outils disponibles de l'agent 
         )
 
         # RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Encapsule l'agent dans un serveur HTTP — c'est ce serveur que Foundry appelle lors du déploiement
