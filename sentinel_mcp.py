@@ -86,7 +86,5 @@ async def create_sentinel_mcp_tool() -> MCPStreamableHTTPTool | None:
         },
         load_tools=True,
     )
-
-    print(vars(sentinel_mcp_tool))
     
     return sentinel_mcp_tool
