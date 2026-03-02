@@ -13,6 +13,46 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+# RBH: [SSL/TLS] Build SSL context with corporate CA bundle BEFORE importing Azure/aiohttp modules.
+# Python 3.13+ enables VERIFY_X509_STRICT by default, which rejects certificates
+# missing the Authority Key Identifier extension (common in corporate proxy CAs).
+import ssl
+import aiohttp
+
+
+def _build_ssl_context() -> ssl.SSLContext | None:
+    """Build SSL context with corporate CA bundle added to system CAs."""
+    ca_cert_path = os.getenv("CA_CERT_PATH", "ca-bundle.crt")
+    if not ca_cert_path or not os.path.exists(ca_cert_path):
+        return None
+    
+    # Start with system default context (includes system CA certificates)
+    ctx = ssl.create_default_context()
+    # Add corporate CA bundle ON TOP (doesn't replace system CAs)
+    ctx.load_verify_locations(cafile=ca_cert_path)
+    
+    # Relax strict RFC-5280 enforcement for corporate proxy CAs that omit
+    # the Authority Key Identifier extension (Python 3.13+ rejects them otherwise).
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    print(f"SSL: loaded CA bundle from {ca_cert_path} (appended to system CAs), VERIFY_X509_STRICT disabled")
+    return ctx
+
+
+_SSL_CONTEXT = _build_ssl_context()
+
+# Patch aiohttp.TCPConnector so every connector created by the Azure SDK
+# uses our custom ssl_context instead of the default system one.
+if _SSL_CONTEXT is not None:
+    _orig_connector_init = aiohttp.TCPConnector.__init__
+
+    def _patched_connector_init(self, *args, **kwargs):
+        # Only inject when the caller hasn't already set an explicit ssl value.
+        if kwargs.get("ssl") is None or kwargs.get("ssl") is True:
+            kwargs["ssl"] = _SSL_CONTEXT
+        return _orig_connector_init(self, *args, **kwargs)
+
+    aiohttp.TCPConnector.__init__ = _patched_connector_init
+
 # RBH: [AGENT FRAMEWORK] Client qui connecte ton agent au modèle IA et gère la logique de conversation
 from agent_framework.azure import AzureAIAgentClient
 # RBH: [AGENT FRAMEWORK] MCPStdioTool permet d'ajouter un serveur MCP local (processus stdio) comme outil de l'agent
@@ -34,7 +74,7 @@ PROJECT_ENDPOINT = os.getenv(
     "PROJECT_ENDPOINT"
 )  # e.g., "https://<project>.services.ai.azure.com"
 MODEL_DEPLOYMENT_NAME = os.getenv(
-    "MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini"
+    "MODEL_DEPLOYMENT_NAME", "gpt-4o-mini"
 )  # Your model deployment name e.g., "gpt-4.1-mini"
 
 # RBH: [AGENT FRAMEWORK + MCP] Credentials de l'App Registration Azure pour authentifier le serveur MCP
@@ -154,16 +194,16 @@ async def main():
         # RBH: [AGENT FRAMEWORK + MCP] Azure MCP Server — serveur MCP officiel Microsoft (github.com/Azure/azure-mcp)
         # RBH: Lancé comme processus local via npx, authentifié par les variables AZURE_* de l'App Registration
         # RBH: Expose des outils Azure (Storage, Key Vault, Resource Manager, etc.) et authentification équivalente à Sentinel
-        azure_mcp_tool = MCPStdioTool(
-            name="azure-mcp",
-            command="npx",
-            args=["-y", "@azure/mcp@latest", "server", "start"],
-            env={
-                "AZURE_CLIENT_ID": AZURE_CLIENT_ID,
-                "AZURE_CLIENT_SECRET": AZURE_CLIENT_SECRET,
-                "AZURE_TENANT_ID": AZURE_TENANT_ID,
-            },
-        )
+        # azure_mcp_tool = MCPStdioTool(
+        #     name="azure-mcp",
+        #     command="npx",
+        #     args=["-y", "@azure/mcp@latest", "server", "start"],
+        #     env={
+        #         "AZURE_CLIENT_ID": AZURE_CLIENT_ID,
+        #         "AZURE_CLIENT_SECRET": AZURE_CLIENT_SECRET,
+        #         "AZURE_TENANT_ID": AZURE_TENANT_ID,
+        #     },
+        # )
 
         # RBH: [AGENT FRAMEWORK + MCP] Sentinel MCP Server distant — à activer quand SENTINEL_MCP_URL est configurée
         # RBH: Voir sentinel_mcp.py pour le détail du pattern HTTP/SSE + auth App Registration
@@ -183,7 +223,8 @@ When a user asks about hotels in Seattle:
 
 Be conversational and helpful. If users ask about things outside of Seattle hotels,
 politely let them know you specialize in Seattle hotel recommendations.""",
-            tools=[get_available_hotels, azure_mcp_tool], #, sentinel_mcp_tool] une fois que le MCP Sentinel distant est prêt, ajoute-le à la liste des outils disponibles de l'agent 
+            # tools=[get_available_hotels, sentinel_mcp_tool], #, sentinel_mcp_tool] une fois que le MCP Sentinel distant est prêt, ajoute-le à la liste des outils disponibles de l'agent 
+            tools=[get_available_hotels]#, sentinel_mcp_tool] #une fois que le MCP Sentinel distant est prêt, ajoute-le à la liste des outils disponibles de l'agent 
         )
 
         # RBH: [Foundry Agent Service SDK (Azure AI AgentServer SDK)] Encapsule l'agent dans un serveur HTTP — c'est ce serveur que Foundry appelle lors du déploiement
